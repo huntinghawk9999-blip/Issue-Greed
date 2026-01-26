@@ -1,10 +1,11 @@
 import streamlit as st
-import pandas as pd
+import json
+import os
 
-# 1. 페이지 기본 설정 (모바일 친화적)
+# 1. 페이지 설정
 st.set_page_config(page_title="오늘의 여론 매치", layout="centered")
 
-# 2. 스타일 설정 (다크모드 & 폰트)
+# 2. 스타일 설정
 st.markdown("""
     <style>
     .big-font { font-size:30px !important; font-weight:bold; text-align:center; }
@@ -14,59 +15,43 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 오늘의 주제 (나중에 윤준님이 여기만 바꾸면 됨)
-match_title = "📢 금투세(금융투자소득세) 폐지"
-match_subtitle = "개미를 위한 감세인가 vs 부자 감세인가?"
+# 3. 데이터 불러오기 (여기가 핵심!)
+# issue.json 파일이 있으면 읽고, 없으면 기본값 표시
+file_path = 'issue.json'
 
-# 4. 화면 구성
-st.markdown(f'<p class="big-font">{match_title}</p>', unsafe_allow_html=True)
-st.write(f"<h3 style='text-align: center;'>{match_subtitle}</h3>", unsafe_allow_html=True)
+if os.path.exists(file_path):
+    with open(file_path, 'r', encoding='utf-8') as f:
+        data = json.load(f)
+else:
+    st.error("뉴스 데이터 파일이 없습니다!")
+    st.stop()
+
+# 4. 화면 구성 (데이터 연동)
+st.markdown(f'<p class="big-font">{data["title"]}</p>', unsafe_allow_html=True)
+st.write(f"<h3 style='text-align: center;'>{data['subtitle']}</h3>", unsafe_allow_html=True)
 
 st.markdown("---")
 
-# 5. 좌우 대립 의견 보여주기
+# 5. 좌우 대립 의견 (JSON 데이터 활용)
 col1, col2, col3 = st.columns([4, 1, 4])
 
 with col1:
-    st.markdown('<div class="blue-box"><h3>🔵 반대 / 민주당측</h3><p>- "초부자 감세일 뿐이다"<br>- "세수 부족 심각해진다"<br>- "소득 있는 곳에 세금 있다"</p></div>', unsafe_allow_html=True)
+    opinions_html = "".join([f"<p>- {op}</p>" for op in data['blue_side']['opinions']])
+    st.markdown(f'<div class="blue-box"><h3>{data["blue_side"]["title"]}</h3>{opinions_html}</div>', unsafe_allow_html=True)
 
 with col2:
     st.markdown('<p class="vs-text">VS</p>', unsafe_allow_html=True)
 
 with col3:
-    st.markdown('<div class="red-box"><h3>🔴 찬성 / 국힘측</h3><p>- "국내 증시 다 죽는다"<br>- "큰손 떠나면 개미도 손해"<br>- "코리아 디스카운트 해소"</p></div>', unsafe_allow_html=True)
+    opinions_html = "".join([f"<p>- {op}</p>" for op in data['red_side']['opinions']])
+    st.markdown(f'<div class="red-box"><h3>{data["red_side"]["title"]}</h3>{opinions_html}</div>', unsafe_allow_html=True)
 
 st.markdown("---")
 
-# 6. 투표 시스템 (임시 데이터)
-if 'vote_blue' not in st.session_state:
-    st.session_state.vote_blue = 1420
-if 'vote_red' not in st.session_state:
-    st.session_state.vote_red = 1680
-
-st.header("🔥 당신의 생각은? (클릭하여 투표)")
-
-# 투표 버튼
-vote_col1, vote_col2 = st.columns(2)
-
-with vote_col1:
-    if st.button("🔵 반대 (세금 내야한다)", use_container_width=True):
-        st.session_state.vote_blue += 1
-        st.success("반대측에 한 표 행사하셨습니다!")
-
-with vote_col2:
-    if st.button("🔴 찬성 (폐지 해야한다)", use_container_width=True):
-        st.session_state.vote_red += 1
-        st.success("찬성측에 한 표 행사하셨습니다!")
-
-# 7. 실시간 결과 그래프
-total = st.session_state.vote_blue + st.session_state.vote_red
-blue_per = int((st.session_state.vote_blue / total) * 100)
-red_per = int((st.session_state.vote_red / total) * 100)
-
-st.write(f"### 📊 실시간 스코어 (총 {total}명 참여)")
-st.progress(blue_per)
-st.caption(f"🔵 반대 {blue_per}% vs 🔴 찬성 {red_per}%")
-
-# 댓글 유도 문구
-st.info("💡 투표 후 아래 댓글로 싸워주세요! (욕설 시 AI가 자동 삭제)")
+# 6. 투표 시스템 (DB 연결 전이라 임시)
+st.header("🔥 당신의 생각은?")
+v_col1, v_col2 = st.columns(2)
+with v_col1:
+    st.button("🔵 왼쪽 편들기", use_container_width=True)
+with v_col2:
+    st.button("🔴 오른쪽 편들기", use_container_width=True)
