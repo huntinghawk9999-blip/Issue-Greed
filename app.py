@@ -19,7 +19,7 @@ st.markdown("""
     </style>
     """, unsafe_allow_html=True)
 
-# 3. 데이터 로딩 (파일 확인)
+# 3. 데이터 로딩
 file_path = 'issue.json'
 if not os.path.exists(file_path):
     st.error("🚨 'issue.json' 파일이 없습니다! bot.py를 먼저 실행해주세요.")
@@ -37,20 +37,23 @@ blue_btn_text = new_data['blue_side'].get('button', '파란팀')
 red_btn_text = new_data['red_side'].get('button', '빨간팀')
 
 # =========================================================
-# [중요] DB 연결 시도
+# [중요] DB 연결 함수 (정석대로 수정)
 # =========================================================
-vote_sheet = None
-try:
-    if "gcp_service_account" in st.secrets:
-        key_dict = json.loads(st.secrets["gcp_service_account"], strict=False)
-        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, scope)
-        client = gspread.authorize(creds)
-        vote_sheet = client.open("fight_club_db").worksheet("시트1")
-    else:
-        st.warning("⚠️ Secrets 설정이 없습니다. 투표가 작동하지 않습니다.")
-except Exception as e:
-    st.error(f"⚠️ DB 연결 실패: {e}")
+@st.cache_resource
+def get_google_client():
+    if "gcp_service_account" not in st.secrets:
+        return None
+    key_dict = json.loads(st.secrets["gcp_service_account"], strict=False)
+    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+    creds = ServiceAccountCredentials.from_json_keyfile_dict(key_dict, scope)
+    return gspread.authorize(creds)
+
+def get_sheet(sheet_name):
+    client = get_google_client()
+    if not client: return None
+    try:
+        return client.open("fight_club_db").worksheet(sheet_name)
+    except: return None
 
 # =========================================================
 # 4. 화면 그리기
@@ -76,12 +79,24 @@ if menu == "실시간 투표":
 
     st.markdown("---")
 
-    # 투표 시스템 (DB 연결되었을 때만 표시)
+    # 투표 시스템
+    vote_sheet = get_sheet("시트1")
+    
     if vote_sheet:
         try:
             # 자동 아카이빙 로직
             current_issue = vote_sheet.acell('A2').value
             if current_issue and current_issue != new_data['title']:
+                # 업데이트 및 초기화
+                history_sheet = get_sheet("History")
+                if history_sheet:
+                    try:
+                        blue_v = vote_sheet.acell('B2').value or 0
+                        red_v = vote_sheet.acell('C2').value or 0
+                        now_str = datetime.now().strftime("%Y-%m-%d")
+                        history_sheet.append_row([now_str, current_issue, "지난 이슈", blue_v, red_v])
+                    except: pass
+                
                 vote_sheet.update_acell('A2', new_data['title'])
                 vote_sheet.update_acell('B2', 0)
                 vote_sheet.update_acell('C2', 0)
@@ -115,7 +130,7 @@ if menu == "실시간 투표":
         except Exception as e:
             st.error(f"투표 시스템 오류: {e}")
     else:
-        st.warning("DB가 연결되지 않아 투표를 할 수 없습니다.")
+        st.warning("DB 연결 대기 중...")
 
     # 댓글 시스템
     st.markdown("---")
@@ -125,18 +140,18 @@ if menu == "실시간 투표":
         team = st.radio("입장 선택", [f"🔵 {blue_btn_text}", f"🔴 {red_btn_text}"], horizontal=True)
         msg = st.text_input("메시지 입력")
         if st.form_submit_button("등록") and msg:
-            if vote_sheet:
+            cs = get_sheet("시트2")
+            if cs:
                 try:
-                    cs = vote_sheet.client.open("fight_club_db").worksheet("시트2")
                     cs.append_row([datetime.now().strftime("%m-%d %H:%M"), team, msg, new_data['title']])
                     st.success("등록되었습니다.")
                     st.rerun()
-                except Exception as e: st.error(f"댓글 등록 실패: {e}")
+                except: st.error("등록 실패")
 
     # 댓글 표시
-    if vote_sheet:
+    cs = get_sheet("시트2")
+    if cs:
         try:
-            cs = vote_sheet.client.open("fight_club_db").worksheet("시트2")
             rows = cs.get_all_records()
             my_comments = [r for r in rows if str(r.get('topic')) == new_data['title']]
             for r in reversed(my_comments):
@@ -146,9 +161,10 @@ if menu == "실시간 투표":
 
 elif menu == "지난 투표 보기":
     st.header("📂 지난 투표 기록")
-    if vote_sheet:
+    hs = get_sheet("History")
+    
+    if hs:
         try:
-            hs = vote_sheet.client.open("fight_club_db").worksheet("History")
             records = hs.get_all_records()
             if not records:
                 st.info("저장된 기록이 없습니다.")
@@ -162,14 +178,17 @@ elif menu == "지난 투표 보기":
                 st.metric("최종 결과", f"🔵 {selected['blue_vote']} vs 🔴 {selected['red_vote']}")
                 
                 st.subheader("당시 의견들")
-                cs = vote_sheet.client.open("fight_club_db").worksheet("시트2")
-                past_comments = [r for r in cs.get_all_records() if str(r.get('topic')) == selected['title']]
-                
-                if not past_comments:
-                    st.write("등록된 의견이 없습니다.")
-                
-                for r in reversed(past_comments):
-                    bg = "#ccccff" if "🔵" in r['team'] else "#ffcccc"
-                    st.markdown(f"<div style='background:{bg};padding:10px;margin:5px;border-radius:5px;'><b>{r['team']}</b>: {r['comment']}<br><small>{r['time']}</small></div>", unsafe_allow_html=True)
+                cs = get_sheet("시트2")
+                if cs:
+                    past_comments = [r for r in cs.get_all_records() if str(r.get('topic')) == selected['title']]
+                    
+                    if not past_comments:
+                        st.write("등록된 의견이 없습니다.")
+                    
+                    for r in reversed(past_comments):
+                        bg = "#ccccff" if "🔵" in r['team'] else "#ffcccc"
+                        st.markdown(f"<div style='background:{bg};padding:10px;margin:5px;border-radius:5px;'><b>{r['team']}</b>: {r['comment']}<br><small>{r['time']}</small></div>", unsafe_allow_html=True)
         except Exception as e:
-            st.error(f"기록을 불러오지 못했습니다: {e}")
+            st.error(f"기록을 불러오는 중 오류 발생: {e}")
+    else:
+        st.error("History 시트를 찾을 수 없습니다.")
