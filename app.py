@@ -161,4 +161,15 @@ elif menu == "지난 투표 보기":
                 st.subheader(selected['title'])
                 st.metric("최종 결과", f"🔵 {selected['blue_vote']} vs 🔴 {selected['red_vote']}")
                 
-                st.subheader("당
+                st.subheader("당시 의견들")
+                cs = vote_sheet.client.open("fight_club_db").worksheet("시트2")
+                past_comments = [r for r in cs.get_all_records() if str(r.get('topic')) == selected['title']]
+                
+                if not past_comments:
+                    st.write("등록된 의견이 없습니다.")
+                
+                for r in reversed(past_comments):
+                    bg = "#ccccff" if "🔵" in r['team'] else "#ffcccc"
+                    st.markdown(f"<div style='background:{bg};padding:10px;margin:5px;border-radius:5px;'><b>{r['team']}</b>: {r['comment']}<br><small>{r['time']}</small></div>", unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"기록을 불러오지 못했습니다: {e}")
