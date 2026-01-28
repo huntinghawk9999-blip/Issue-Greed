@@ -16,6 +16,17 @@ st.markdown("""
     .vs-text { font-size:40px; color:gray; text-align:center; font-weight:bold; } 
     .red-box { background-color: #ffcccc; padding: 15px; border-radius: 10px; color: black; margin-bottom: 10px; }
     .blue-box { background-color: #ccccff; padding: 15px; border-radius: 10px; color: black; margin-bottom: 10px; }
+    .news-link { 
+        display: block; 
+        background-color: #f0f2f6; 
+        padding: 10px; 
+        border-radius: 5px; 
+        margin-bottom: 5px; 
+        text-decoration: none; 
+        color: #31333F; 
+        font-weight: bold;
+    }
+    .news-link:hover { background-color: #e0e2e6; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -32,12 +43,13 @@ except Exception as e:
     st.error(f"🚨 JSON 파일이 깨졌습니다: {e}")
     st.stop()
 
-# 버튼 이름 안전하게 가져오기
+# 버튼 이름 & 뉴스 키워드 가져오기 (안전장치)
 blue_btn_text = new_data['blue_side'].get('button', '파란팀')
 red_btn_text = new_data['red_side'].get('button', '빨간팀')
+news_keywords = new_data.get('news_keywords', [new_data['title']]) # 없으면 제목을 키워드로 씀
 
 # =========================================================
-# [중요] DB 연결 함수 (정석대로 수정)
+# DB 연결
 # =========================================================
 @st.cache_resource
 def get_google_client():
@@ -62,7 +74,6 @@ st.sidebar.title("📌 메뉴")
 menu = st.sidebar.radio("페이지 이동", ["실시간 투표", "지난 투표 보기"])
 
 if menu == "실시간 투표":
-    # 제목 및 내용 표시
     st.markdown(f'<p class="big-font">{new_data["title"]}</p>', unsafe_allow_html=True)
     st.write(f"<h3 style='text-align: center;'>{new_data['subtitle']}</h3>", unsafe_allow_html=True)
     st.markdown("---")
@@ -84,10 +95,9 @@ if menu == "실시간 투표":
     
     if vote_sheet:
         try:
-            # 자동 아카이빙 로직
+            # 자동 아카이빙
             current_issue = vote_sheet.acell('A2').value
             if current_issue and current_issue != new_data['title']:
-                # 업데이트 및 초기화
                 history_sheet = get_sheet("History")
                 if history_sheet:
                     try:
@@ -102,7 +112,7 @@ if menu == "실시간 투표":
                 vote_sheet.update_acell('C2', 0)
                 st.rerun()
 
-            # 투표 버튼 및 현황
+            # 투표 버튼
             vb = int(vote_sheet.acell('B2').value or 0)
             vr = int(vote_sheet.acell('C2').value or 0)
             
@@ -132,6 +142,27 @@ if menu == "실시간 투표":
     else:
         st.warning("DB 연결 대기 중...")
 
+    # [NEW] 관련 뉴스 섹션 추가
+    st.markdown("---")
+    st.subheader("📰 관련 뉴스 (실시간 검색)")
+    
+    # 3개의 컬럼으로 나눠서 뉴스 버튼 배치
+    n_col1, n_col2, n_col3 = st.columns(3)
+    
+    for idx, keyword in enumerate(news_keywords):
+        # 네이버 뉴스 검색 URL 생성
+        search_url = f"https://search.naver.com/search.naver?where=news&query={keyword}"
+        
+        # 순서대로 컬럼에 배치
+        target_col = [n_col1, n_col2, n_col3][idx % 3]
+        with target_col:
+            st.markdown(f"""
+                <a href="{search_url}" target="_blank" class="news-link">
+                    🔍 {keyword} 검색하기
+                </a>
+            """, unsafe_allow_html=True)
+
+
     # 댓글 시스템
     st.markdown("---")
     st.subheader("💬 의견 나누기")
@@ -148,7 +179,6 @@ if menu == "실시간 투표":
                     st.rerun()
                 except: st.error("등록 실패")
 
-    # 댓글 표시
     cs = get_sheet("시트2")
     if cs:
         try:
@@ -181,10 +211,8 @@ elif menu == "지난 투표 보기":
                 cs = get_sheet("시트2")
                 if cs:
                     past_comments = [r for r in cs.get_all_records() if str(r.get('topic')) == selected['title']]
-                    
                     if not past_comments:
                         st.write("등록된 의견이 없습니다.")
-                    
                     for r in reversed(past_comments):
                         bg = "#ccccff" if "🔵" in r['team'] else "#ffcccc"
                         st.markdown(f"<div style='background:{bg};padding:10px;margin:5px;border-radius:5px;'><b>{r['team']}</b>: {r['comment']}<br><small>{r['time']}</small></div>", unsafe_allow_html=True)
