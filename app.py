@@ -16,17 +16,18 @@ st.markdown("""
     .vs-text { font-size:40px; color:gray; text-align:center; font-weight:bold; } 
     .red-box { background-color: #ffcccc; padding: 15px; border-radius: 10px; color: black; margin-bottom: 10px; }
     .blue-box { background-color: #ccccff; padding: 15px; border-radius: 10px; color: black; margin-bottom: 10px; }
-    .news-link { 
-        display: block; 
-        background-color: #f0f2f6; 
-        padding: 10px; 
-        border-radius: 5px; 
-        margin-bottom: 5px; 
-        text-decoration: none; 
-        color: #31333F; 
-        font-weight: bold;
+    .news-card { 
+        background-color: #ffffff; 
+        border: 1px solid #e0e0e0;
+        padding: 15px; 
+        border-radius: 8px; 
+        margin-bottom: 10px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+        transition: transform 0.2s;
     }
-    .news-link:hover { background-color: #e0e2e6; }
+    .news-card:hover { transform: translateY(-2px); box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+    .news-title { font-weight: bold; color: #1f77b4; text-decoration: none; font-size: 16px; }
+    .news-source { color: #666; font-size: 12px; margin-top: 5px; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -43,10 +44,10 @@ except Exception as e:
     st.error(f"🚨 JSON 파일이 깨졌습니다: {e}")
     st.stop()
 
-# 버튼 이름 & 뉴스 키워드 가져오기 (안전장치)
 blue_btn_text = new_data['blue_side'].get('button', '파란팀')
 red_btn_text = new_data['red_side'].get('button', '빨간팀')
-news_keywords = new_data.get('news_keywords', [new_data['title']]) # 없으면 제목을 키워드로 씀
+# [NEW] 파이썬이 찾아온 진짜 링크 목록
+real_news_list = new_data.get('real_news', [])
 
 # =========================================================
 # DB 연결
@@ -95,7 +96,6 @@ if menu == "실시간 투표":
     
     if vote_sheet:
         try:
-            # 자동 아카이빙
             current_issue = vote_sheet.acell('A2').value
             if current_issue and current_issue != new_data['title']:
                 history_sheet = get_sheet("History")
@@ -106,13 +106,11 @@ if menu == "실시간 투표":
                         now_str = datetime.now().strftime("%Y-%m-%d")
                         history_sheet.append_row([now_str, current_issue, "지난 이슈", blue_v, red_v])
                     except: pass
-                
                 vote_sheet.update_acell('A2', new_data['title'])
                 vote_sheet.update_acell('B2', 0)
                 vote_sheet.update_acell('C2', 0)
                 st.rerun()
 
-            # 투표 버튼
             vb = int(vote_sheet.acell('B2').value or 0)
             vr = int(vote_sheet.acell('C2').value or 0)
             
@@ -142,26 +140,23 @@ if menu == "실시간 투표":
     else:
         st.warning("DB 연결 대기 중...")
 
-    # [NEW] 관련 뉴스 섹션 추가
-    st.markdown("---")
-    st.subheader("📰 관련 뉴스 (실시간 검색)")
-    
-    # 3개의 컬럼으로 나눠서 뉴스 버튼 배치
-    n_col1, n_col2, n_col3 = st.columns(3)
-    
-    for idx, keyword in enumerate(news_keywords):
-        # 네이버 뉴스 검색 URL 생성
-        search_url = f"https://search.naver.com/search.naver?where=news&query={keyword}"
+    # [NEW] 진짜 뉴스 링크 섹션
+    if real_news_list:
+        st.markdown("---")
+        st.subheader("📰 관련 기사 (자동 수집)")
         
-        # 순서대로 컬럼에 배치
-        target_col = [n_col1, n_col2, n_col3][idx % 3]
-        with target_col:
-            st.markdown(f"""
-                <a href="{search_url}" target="_blank" class="news-link">
-                    🔍 {keyword} 검색하기
-                </a>
-            """, unsafe_allow_html=True)
-
+        n_cols = st.columns(3) # 3열 배치
+        
+        for idx, news in enumerate(real_news_list):
+            target_col = n_cols[idx % 3]
+            with target_col:
+                # 카드 형태의 디자인 적용
+                st.markdown(f"""
+                    <div class="news-card">
+                        <a href="{news['url']}" target="_blank" class="news-title">{news['title']}</a>
+                        <div class="news-source">🔍 키워드: {news['keyword']}</div>
+                    </div>
+                """, unsafe_allow_html=True)
 
     # 댓글 시스템
     st.markdown("---")
@@ -192,7 +187,6 @@ if menu == "실시간 투표":
 elif menu == "지난 투표 보기":
     st.header("📂 지난 투표 기록")
     hs = get_sheet("History")
-    
     if hs:
         try:
             records = hs.get_all_records()
@@ -207,16 +201,16 @@ elif menu == "지난 투표 보기":
                 st.subheader(selected['title'])
                 st.metric("최종 결과", f"🔵 {selected['blue_vote']} vs 🔴 {selected['red_vote']}")
                 
+                # 지난 기록에서도 댓글 보기
                 st.subheader("당시 의견들")
                 cs = get_sheet("시트2")
                 if cs:
                     past_comments = [r for r in cs.get_all_records() if str(r.get('topic')) == selected['title']]
-                    if not past_comments:
-                        st.write("등록된 의견이 없습니다.")
+                    if not past_comments: st.write("등록된 의견이 없습니다.")
                     for r in reversed(past_comments):
                         bg = "#ccccff" if "🔵" in r['team'] else "#ffcccc"
                         st.markdown(f"<div style='background:{bg};padding:10px;margin:5px;border-radius:5px;'><b>{r['team']}</b>: {r['comment']}<br><small>{r['time']}</small></div>", unsafe_allow_html=True)
         except Exception as e:
-            st.error(f"기록을 불러오는 중 오류 발생: {e}")
+            st.error(f"기록 조회 오류: {e}")
     else:
-        st.error("History 시트를 찾을 수 없습니다.")
+        st.error("History 시트 없음")
